@@ -1903,7 +1903,7 @@ function srsMark(id, ok) {
   S.srs[id] = r;
 }
 const dueCount = () => Object.keys(S.srs).filter(id => EXI[id] && S.srs[id].due <= Date.now()).length;
-const unlocked = l => S.all || l.idx === 0 || !!S.done[LESSONS[l.idx - 1].id] || !!S.done[l.id];
+const unlocked = () => true; // sin bloqueos: cualquier lección está abierta
 
 // ---------- Utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
@@ -1925,8 +1925,7 @@ function topbar() {
   const st = streakNow();
   $('#stats').innerHTML =
     `<span class="stat fire ${st ? '' : 'off'}" title="Day streak">${I.fire}<span>${st}</span></span>` +
-    `<span class="stat xp" title="Total XP">${I.bolt}<span>${S.xp}</span></span>` +
-    `<span class="stat heart" title="Hearts">${I.heart}<span>${S.inf ? '∞' : S.hearts}</span></span>`;
+    `<span class="stat xp" title="Total XP">${I.bolt}<span>${S.xp}</span></span>`;
   const d = dueCount(), b = $('#nav-review .badge');
   b.textContent = d; b.hidden = !d;
   document.querySelectorAll('.nav button').forEach(x => x.classList.toggle('on', x.dataset.tab === S.tab));
@@ -1988,8 +1987,7 @@ function vReview(m) {
   const weak = seen.filter(id => S.srs[id].w > 0).sort((a, b) => S.srs[b].w - S.srs[a].w || S.srs[a].b - S.srs[b].b).slice(0, 6);
   let html = `<div class="sec"><h2>Review</h2><p class="lead">Questions come back right before you would forget them: after 1 day, 3 days, a week, two weeks and a month. Miss one and it starts over.</p>
   <div class="tiles"><div class="tile"><b>${d}</b><span>due today</span></div><div class="tile"><b>${seen.length}</b><span>questions seen of ${Object.keys(EXI).length}</span></div></div>
-  <button class="btn blue" id="rv" ${seen.length ? '' : 'disabled'}>${d ? `Review ${Math.min(d, 12)} questions` : 'Free review'}</button>
-  <p class="hint">Reviews never cost hearts, and finishing one restores 2.</p></div>`;
+  <button class="btn blue" id="rv" ${seen.length ? '' : 'disabled'}>${d ? `Review ${Math.min(d, 12)} questions` : 'Free review'}</button></div>`;
   if (weak.length) html += `<div class="sec"><h2>Your weak spots</h2><div class="list">${weak.map(id => { const x = EXI[id]; return `<div class="li"><div>${strip(x.q).slice(0, 110)}${strip(x.q).length > 110 ? '…' : ''}</div><span class="pill r">${S.srs[id].w} miss${S.srs[id].w > 1 ? 'es' : ''}</span><small>${x.lesson.title}</small></div>`; }).join('')}</div><button class="btn red" id="rw">Practice weak spots</button></div>`;
   html += `<div class="sec"><h2>By unit</h2><div class="list">${UNITS.map(u => { const ids = u.lessons.flatMap(l => l.ex.map(x => x.id)); const s = ids.filter(id => S.srs[id]); const mast = s.filter(id => S.srs[id].b >= 3).length; return `<div class="li"><div><b>${u.title}</b></div>${s.length ? `<button class="btn sm ghost" data-ur="${u.id}">Review</button>` : '<span class="pill">not started</span>'}<small>${s.length}/${ids.length} seen · ${mast} mastered</small></div>`; }).join('')}</div></div>`;
   m.innerHTML = html;
@@ -2031,16 +2029,12 @@ function vMe(m) {
   <div class="sec"><h2>Settings</h2>
   <div class="card" style="display:flex;flex-direction:column;gap:14px">
     <div><b>Daily goal</b><div class="seg" id="goal" style="margin-top:8px">${[30, 50, 100, 150].map(g => `<button data-g="${g}" class="${S.goal === g ? 'on' : ''}">${g} XP</button>`).join('')}</div></div>
-    <label class="tog" for="inf"><span><b>Unlimited hearts</b><br><small class="hint">Mistakes don\u2019t cost hearts.</small></span><input type="checkbox" id="inf" ${S.inf ? 'checked' : ''}></label>
-    <label class="tog" for="all"><span><b>Unlock all lessons</b><br><small class="hint">Jump to any topic.</small></span><input type="checkbox" id="all" ${S.all ? 'checked' : ''}></label>
   </div></div>
   <div class="sec"><h2>Backup</h2><p class="lead">${Cloud.state === 'synced' ? 'Progress is saved to your Claude account, so it follows you on any device where you open this link signed in.' : Cloud.state === 'error' ? 'Couldn\u2019t reach your account just now, so progress is saved in this browser and will sync when the connection is back.' : 'Progress is saved on this device only.'} To move it to another device, copy the backup code and paste it there.</p>
   <div class="row"><button class="btn ghost" id="exp">Copy code</button><button class="btn ghost" id="imp">Paste code</button></div>
   <textarea id="code" hidden placeholder="Paste your progress code here"></textarea><button class="btn" id="impgo" hidden>Load progress</button></div>
   <div class="sec"><button class="btn ghost" id="rst" style="color:var(--red)">Reset all progress</button></div>`;
   m.querySelectorAll('#goal button').forEach(b => b.onclick = () => { S.goal = +b.dataset.g; save(); render(); });
-  $('#inf').onchange = e => { S.inf = e.target.checked; save(); topbar(); };
-  $('#all').onchange = e => { S.all = e.target.checked; save(); };
   const code = $('#code');
   $('#exp').onclick = () => {
     const c = btoa(unescape(encodeURIComponent(JSON.stringify(S))));
@@ -2069,7 +2063,6 @@ function noHearts() {
 }
 function startLesson(l) {
   regen();
-  if (!S.inf && S.hearts <= 0) return noHearts();
   const q = [...l.th.map(t => ({ k: 'th', t })), ...l.ex.map(x => ({ k: 'ex', x }))];
   SES = { type: 'lesson', l, q, i: 0, total: q.length, done: 0, ok: 0, ko: 0, xp: 0, first: {}, t0: Date.now() };
   openSession();
@@ -2089,7 +2082,7 @@ function startReview(unitId, ids) {
 }
 function openSession() {
   const L = document.createElement('div'); L.className = 'lesson'; L.id = 'lesson';
-  L.innerHTML = `<div class="wrap lhead"><button class="x" id="lx" aria-label="Quit">${I.x}</button><div class="lprog"><div id="lp"></div></div><button class="thbtn" id="lth" hidden>CONCEPTS</button><span class="stat heart" id="lh"></span></div>
+  L.innerHTML = `<div class="wrap lhead"><button class="x" id="lx" aria-label="Quit">${I.x}</button><div class="lprog"><div id="lp"></div></div><button class="thbtn" id="lth" hidden>CONCEPTS</button></div>
   <div class="lbody"><div class="wrap" id="lb"></div></div><div class="lfoot" id="lf"><div class="wrap" id="lfw"></div></div>`;
   document.body.appendChild(L); document.body.style.overflow = 'hidden';
   $('#lx').onclick = () => sheet(`<h3>Quit this lesson?</h3><p class="meta">You will lose this session\u2019s progress, but answers so far still count toward review.</p><button class="btn" id="k">Keep learning</button><button class="btn ghost" id="q" style="color:var(--red)">Quit</button>`, s => {
@@ -2101,7 +2094,6 @@ function openSession() {
 function closeSession() { const L = $('#lesson'); L && L.remove(); document.body.style.overflow = ''; SES = null; save(); render(); }
 function hud() {
   $('#lp').style.width = (SES.done / SES.total * 100) + '%';
-  $('#lh').innerHTML = I.heart + `<span>${S.inf ? '∞' : S.hearts}</span>`;
 }
 function foot(html, cls) { const f = $('#lf'); f.className = 'lfoot ' + (cls || ''); $('#lfw').innerHTML = html; }
 
@@ -2239,14 +2231,12 @@ function doCheck() {
   } else {
     if (first) SES.ko++;
     SES.q.push({ k: 'ex', x });
-    if (SES.type === 'lesson' && !S.inf) S.hearts = Math.max(0, S.hearts - 1);
   }
   save(); hud();
   const praise = ['Correct!', 'Nice work!', 'Exactly!', 'Spot on!'][Math.floor(Math.random() * 4)];
   foot(`<div class="fb">${r.ok ? `<h4>${I.check.replace('<svg', '<svg width="24" height="24"')} ${praise}</h4>` : `<h4>${I.x.replace('<svg', '<svg width="24" height="24"')} Not quite</h4><p class="sol">Correct answer: ${r.sol}</p>`}${r.note ? `<p>${r.note}</p>` : ''}${x.e ? `<p>${x.e}</p>` : ''}${!r.ok ? '<p class="hint">This question will come back at the end of the session.</p>' : ''}</div><button class="btn" id="nx">Continue</button>`, r.ok ? 'good' : 'bad');
   $('#nx').onclick = () => {
     SES.locked = false;
-    if (SES.type === 'lesson' && !S.inf && S.hearts <= 0) return outOfHearts();
     SES.i++; step();
   };
 }
@@ -2269,8 +2259,8 @@ function finish() {
     const nxt = LESSONS[SES.l.idx + 1];
     sub = nxt ? `Next up: ${nxt.title}` : 'You have finished the whole syllabus. Keep reviewing until you master it.';
   } else {
-    bonus = 5; S.hearts = Math.min(MAXH, S.hearts + 2);
-    title = 'Review complete!'; sub = 'You got 2 hearts back. Questions you know will come back less often.';
+    bonus = 5;
+    title = 'Review complete!'; sub = 'Questions you know will come back less often; the ones you miss come back sooner.';
   }
   addXP(bonus); SES.xp += bonus; touchStreak(); save();
   $('#lth').hidden = true; $('#lp').style.width = '100%';
